@@ -1,13 +1,7 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
 using System.Drawing;
-using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 using System.Windows.Forms;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement;
 
 namespace TriCNES
 {
@@ -22,6 +16,15 @@ namespace TriCNES
             Scope = "RAM";
             Resize += TriCHexEditor_Resize;
             vScrollBar1.ValueChanged += Scrollbar_ValueChanged;
+            FormClosing += TriCHexEditor_Closing;
+        }
+        public void TriCHexEditor_Closing(object sender, FormClosingEventArgs e)
+        {
+            if(MainGUI != null)
+            {
+                MainGUI.HexEditor = null;
+            }
+            Dispose();
         }
 
         public TriCNESGUI MainGUI;
@@ -263,6 +266,30 @@ namespace TriCNES
         private void paletteRAMToolStripMenuItem_Click(object sender, EventArgs e)
         {
             ChangeScope(ScopeType.Palette_RAM);
+        }
+
+        private void copyToClipboardToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            StringBuilder sb = new StringBuilder();
+            for(int i = 0; i < vScrollBar1.Maximum*0x10;i++)
+            {
+                switch (scopeType)
+                {
+                    case ScopeType.RAM:
+                        sb.Append(MainGUI.EMU.RAM[i].ToString("X2") + " "); break;
+                    case ScopeType.CPU_Address_Space:
+                        sb.Append(MainGUI.EMU.Observe((ushort)i).ToString("X2") + " "); break;
+                    case ScopeType.VRAM:
+                        sb.Append(MainGUI.EMU.VRAM[i].ToString("X2") + " "); break;
+                    case ScopeType.PPU_Address_Space:
+                        sb.Append(MainGUI.EMU.ObservePPU((ushort)i).ToString("X2") + " "); break;
+                    case ScopeType.OAM:
+                        sb.Append(MainGUI.EMU.OAM[i].ToString("X2") + " "); break;
+                    case ScopeType.Palette_RAM:
+                        sb.Append(MainGUI.EMU.PaletteRAM[i].ToString("X2") + " "); break;
+                }
+            }
+            Clipboard.SetText(sb.ToString());
         }
     }
 }

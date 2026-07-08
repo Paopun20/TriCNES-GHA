@@ -1,15 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
-using System.Drawing;
 using System.IO;
-using System.Linq;
-using System.Net.NetworkInformation;
-using System.Text;
-using System.Threading.Tasks;
 using System.Windows.Forms;
-using System.IO.Compression;
 
 namespace TriCNES
 {
@@ -18,10 +10,21 @@ namespace TriCNES
         public TASProperties()
         {
             InitializeComponent();
+            FormClosing += TASProperties_Closing;
+        }
+
+        private void TASProperties_Closing(Object sender, FormClosingEventArgs e)
+        {
+            if (MainGUI != null)
+            {
+                MainGUI.TASPropertiesForm = null;
+            }
+            Dispose();
         }
 
         public string TasFilePath;
         public ushort[] TasInputLog;
+        public bool[] TasResetLog;
         public TriCNESGUI MainGUI;
 
         public bool SubframeInputs()
@@ -109,9 +112,11 @@ namespace TriCNES
                     // TODO: ask if the .tasd file format is a thing yet
             }
 
-            TASInputs = MainGUI.ParseTasFile(TasFilePath);
+            List<bool> Resets = new List<bool>();
+            TASInputs = MainGUI.ParseTasFile(TasFilePath, out Resets);
             // okay cool, now we have the entire input log.
             TasInputLog = TASInputs.ToArray();
+            TasResetLog = Resets.ToArray();
             l_InputCount.Text = TasInputLog.Length + " Inputs";
         }
 

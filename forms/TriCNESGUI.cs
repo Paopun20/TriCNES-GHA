@@ -48,12 +48,13 @@ namespace TriCNES
         public Emulator EMU;
         public Thread EmuClock;
         string filePath;
-        TASProperties TASPropertiesForm;
-        TASProperties3ct TASPropertiesForm3ct;
+        bool FDS;
+        public TASProperties TASPropertiesForm;
+        public TASProperties3ct TASPropertiesForm3ct;
         public TriCTraceLogger? TraceLogger;
         public TriCNTViewer? NametableViewer;
         public TriCTASTimeline? TasTimeline;
-        public TriCHexEditor? HexExditor;
+        public TriCHexEditor? HexEditor;
 
         void RunUpkeep()
         {
@@ -83,6 +84,18 @@ namespace TriCNES
                     }
                 }
             }
+            if (Pending_ShowScreenBorders)
+            {
+                Pending_ShowScreenBorders = false;
+                EMU.PPU_ShowScreenBorders = true;
+                BeginInvoke(new MethodInvoker(delegate () { ResizeWindow(ScreenMult); }));
+            }
+            if (Pending_HideScreenBorders)
+            {
+                Pending_HideScreenBorders = false;
+                EMU.PPU_ShowScreenBorders = false;
+                BeginInvoke(new MethodInvoker(delegate () { ResizeWindow(ScreenMult); }));
+            }
             if (PendingSaveState)
             {
                 PendingSaveState = false;
@@ -110,9 +123,9 @@ namespace TriCNES
                 EMU.Logging = false;
                 EMU.DebugLog = new StringBuilder();
             }
-            if(HexExditor != null)
+            if(HexEditor != null)
             {
-                HexExditor.Update();
+                HexEditor.Update();
             }
         }
 
@@ -255,8 +268,7 @@ namespace TriCNES
                 EMU._CoreFrameAdvance();
                 RunPostFramePhase();
                 frameCount++;
-            }
-            
+            }            
         }
 
         DirectBitmap NametableBitmap;
@@ -294,8 +306,8 @@ namespace TriCNES
                     {
                         while (x < 32)
                         {
-                            PatternTile = EMU.FetchPPU((ushort)(0x2000 + 0x400 * tx + 0x800 * ty + x + y * 32));
-                            pal = EMU.FetchPPU((ushort)(0x2000 + 0x400 * (tx + 1) + 0x800 * ty - 0x40 + x / 4 + (y / 4) * 8));
+                            PatternTile = EMU.ObservePPU((ushort)(0x2000 + 0x400 * tx + 0x800 * ty + x + y * 32));
+                            pal = EMU.ObservePPU((ushort)(0x2000 + 0x400 * (tx + 1) + 0x800 * ty - 0x40 + x / 4 + (y / 4) * 8));
                             if ((x & 3) >= 2)
                             {
                                 pal = pal >> 2;
@@ -310,14 +322,14 @@ namespace TriCNES
                                 while (px < 8)
                                 {
 
-                                    int k = ((EMU.FetchPPU((ushort)(py + PatternTile * 16 + (!EMU.PPU_PatternSelect_Background ? 0 : 0x1000))) >> (7 - px)) & 1) + 2 * ((EMU.FetchPPU((ushort)(py + 8 + PatternTile * 16 + (!EMU.PPU_PatternSelect_Background ? 0 : 0x1000))) >> (7 - px)) & 1);
+                                    int k = ((EMU.ObservePPU((ushort)(py + PatternTile * 16 + (!EMU.PPU_PatternSelect_Background ? 0 : 0x1000))) >> (7 - px)) & 1) + 2 * ((EMU.ObservePPU((ushort)(py + 8 + PatternTile * 16 + (!EMU.PPU_PatternSelect_Background ? 0 : 0x1000))) >> (7 - px)) & 1);
                                     if (k == 0 && ForceBackdropOnIndex0)
                                     {
-                                        k = EMU.FetchPPU(0x3F00);
+                                        k = EMU.ObservePPU(0x3F00);
                                     }
                                     else
                                     {
-                                        k = EMU.FetchPPU((ushort)(0x3F00 + k + pal * 4));
+                                        k = EMU.ObservePPU((ushort)(0x3F00 + k + pal * 4));
                                     }
                                     int col = unchecked((int)Emulator.NesPalInts[k & 0x3F]);
                                     NametableBitmap.SetPixel(tx * 0x100 + x * 8 + px, ty * 0xF0 + y * 8 + py, col);
@@ -352,8 +364,8 @@ namespace TriCNES
                 ||| ++-------------- nametable select
                 +++----------------- fine Y scroll
                 */
-                int X = ((EMU.PPU_TempVRAMAddress & 0b11111) << 3) | EMU.PPU_FineXScroll | ((EMU.PPU_TempVRAMAddress & 0b10000000000) >> 2);
-                int Y = ((EMU.PPU_TempVRAMAddress & 0b1111100000) >> 2) | ((EMU.PPU_TempVRAMAddress & 0b111000000000000) >> 12) | ((EMU.PPU_TempVRAMAddress & 0b100000000000) >> 4);
+                int X = ((EMU.PPU_t & 0b11111) << 3) | EMU.PPU_FineXScroll | ((EMU.PPU_t & 0b10000000000) >> 2);
+                int Y = ((EMU.PPU_t & 0b1111100000) >> 2) | ((EMU.PPU_t & 0b111000000000000) >> 12) | ((EMU.PPU_t & 0b100000000000) >> 4);
                 int i = 0;
                 while (i <= 257)
                 {
@@ -371,8 +383,8 @@ namespace TriCNES
             }
             if (NametableViewer.OverlayScreen())
             {
-                int X = ((EMU.PPU_TempVRAMAddress & 0b11111) << 3) | EMU.PPU_FineXScroll | ((EMU.PPU_TempVRAMAddress & 0b10000000000) >> 2);
-                int Y = ((EMU.PPU_TempVRAMAddress & 0b1111100000) >> 2) | ((EMU.PPU_TempVRAMAddress & 0b111000000000000) >> 12) | ((EMU.PPU_TempVRAMAddress & 0b100000000000) >> 4);
+                int X = ((EMU.PPU_t & 0b11111) << 3) | EMU.PPU_FineXScroll | ((EMU.PPU_t & 0b10000000000) >> 2);
+                int Y = ((EMU.PPU_t & 0b1111100000) >> 2) | ((EMU.PPU_t & 0b111000000000000) >> 12) | ((EMU.PPU_t & 0b100000000000) >> 4);
                 for (int xx = 0; xx < 256; xx++)
                 {
                     for (int yy = 0; yy < 240; yy++)
@@ -382,6 +394,63 @@ namespace TriCNES
                 }
             }
             return NametableBitmap.Bitmap;
+        }
+
+        string fds_bios; // file path to the FDS bios if one is loaded.
+        public bool LoadROM(string FilePath)
+        {
+            if (FDS)
+            {
+                if (fds_bios == null || fds_bios.Length == 0)
+                {
+                    string InitDirectory = AppDomain.CurrentDomain.BaseDirectory;
+                    if (Directory.Exists(AppDomain.CurrentDomain.BaseDirectory + @"roms\"))
+                    {
+                        InitDirectory += @"roms\";
+                    }
+                    OpenFileDialog ofd = new OpenFileDialog()
+                    {
+                        FileName = "",
+                        Title = "Select FDS BIOS",
+                        InitialDirectory = InitDirectory
+                    };
+                    if (ofd.ShowDialog() == DialogResult.OK)
+                    {
+                        fds_bios = ofd.FileName;
+                        byte[] FDS_BIOS = File.ReadAllBytes(fds_bios);
+                        if (FDS_BIOS.Length != 0x2000)
+                        {
+                            fds_bios = "";
+                            return false;
+                        }
+                    }
+                    else
+                    {
+                        return false;
+                    }
+                }
+
+                Cartridge Cart = new Cartridge(filePath, fds_bios);
+                EMU.Cart = Cart;
+                Cart.Emu = EMU;
+                return true;
+            }
+            else
+            {
+                Cartridge Cart = new Cartridge(filePath);
+                EMU.Cart = Cart;
+                Cart.Emu = EMU;
+                return true;
+            }
+            return false;
+        }
+
+        public void InsertDisk(string filepath)
+        {
+            if(EMU.Cart.FDS != null)
+            {
+                EMU.Cart.FDS.InsertDisk(filepath);
+            }
         }
 
         void ClockEmulator3CT(CancellationToken ct)
@@ -441,13 +510,13 @@ namespace TriCNES
                     GC.Collect();
                 }
                 filePath = ofd.FileName;
+                FDS = Path.GetExtension(ofd.FileName) == ".fds";
                 EMU = new Emulator();
                 EMU.PPU_DecodeSignal = settings_ntsc;
                 EMU.PPU_ShowRawNTSCSignal = settings_ntscRaw;
                 EMU.PPU_ShowScreenBorders = settings_border;
                 EMU.PPUClock = settings_alignment;
-                Cartridge Cart = new Cartridge(filePath);
-                EMU.Cart = Cart;
+                if (!LoadROM(filePath)) { return; }
                 cancel = new CancellationTokenSource();
                 EmuClock = new Thread(() => ClockEmulator(cancel.Token));
                 EmuClock.SetApartmentState(ApartmentState.STA);
@@ -520,10 +589,11 @@ namespace TriCNES
             EMU.PPU_ShowRawNTSCSignal = settings_ntscRaw;
             EMU.PPU_ShowScreenBorders = settings_border;
 
-            Cartridge Cart = new Cartridge(filePath);
-            EMU.Cart = Cart;
+            if (!LoadROM(filePath)) { return; }
+
             EMU.TAS_ReadingTAS = true;
             EMU.TAS_InputLog = TASPropertiesForm.TasInputLog;
+            EMU.TAS_ResetLog = TASPropertiesForm.TasResetLog;
             EMU.ClockFiltering = TASPropertiesForm.SubframeInputs();
             EMU.PPUClock = TASPropertiesForm.GetPPUClockPhase();
             EMU.CPUClock = TASPropertiesForm.GetCPUClockPhase();
@@ -636,6 +706,10 @@ namespace TriCNES
                 EMU.PPU_ShowScreenBorders = settings_border;
                 EMU.PPUClock = settings_alignment;
             }
+            foreach(Cartridge c in TASPropertiesForm3ct.CartridgeArray)
+            {
+                c.Emu = EMU;
+            }
             cancel = new CancellationTokenSource();
             EmuClock = new Thread(() => ClockEmulator3CT(cancel.Token));
             EmuClock.IsBackground = true;
@@ -691,6 +765,7 @@ namespace TriCNES
                 Emu2.PPU_ShowScreenBorders = settings_border;
                 Emu2.PPUClock = settings_alignment;
                 Emu2.Cart = EMU.Cart;
+                Emu2.Cart.Emu = Emu2;
                 EMU = Emu2;
             }
         }
@@ -704,41 +779,52 @@ namespace TriCNES
         private void pb_Screen_DragEnter(object sender, DragEventArgs e)
         {
             var filenames = (string[])e.Data.GetData(DataFormats.FileDrop, false);
-            if (Path.GetExtension(filenames[0]) == ".nes" || Path.GetExtension(filenames[0]) == ".NES") e.Effect = DragDropEffects.All;
+            if (Path.GetExtension(filenames[0]) == ".nes" || Path.GetExtension(filenames[0]) == ".NES" || Path.GetExtension(filenames[0]) == ".fds" || Path.GetExtension(filenames[0]) == ".FDS") e.Effect = DragDropEffects.All;
             else e.Effect = DragDropEffects.None;
         }
 
         private void pb_Screen_DragDrop(object sender, DragEventArgs e)
         {
-            if (EmuClock != null)
-            {
-                cancel.Cancel();
-                EmuClock.Join();
-            }
-
-            if (EMU != null)
-            {
-                EMU.Dispose();
-                GC.Collect();
-            }
-
             var filenames = (string[])e.Data.GetData(DataFormats.FileDrop, false);
             string filename = filenames[0];
             filePath = filename;
-            EMU = new Emulator();
-            EMU.PPU_DecodeSignal = settings_ntsc;
-            EMU.PPU_ShowRawNTSCSignal = settings_ntscRaw;
-            EMU.PPU_ShowScreenBorders = settings_border;
-            EMU.PPUClock = settings_alignment;
+            bool prev_FDS = FDS;
+            FDS = Path.GetExtension(filePath).ToLower() == ".fds";
 
-            Cartridge Cart = new Cartridge(filePath);
+            if (!FDS || !prev_FDS)
+            {
+                if (EmuClock != null)
+                {
+                    cancel.Cancel();
+                    EmuClock.Join();
+                }
 
-            EMU.Cart = Cart;
-            cancel = new CancellationTokenSource();
-            EmuClock = new Thread(() => ClockEmulator(cancel.Token));
-            EmuClock.SetApartmentState(ApartmentState.STA);
-            EmuClock.IsBackground = true;
-            EmuClock.Start();
+                if (EMU != null)
+                {
+                    EMU.Dispose();
+                    GC.Collect();
+                }
+            }
+            if (FDS && prev_FDS)
+            {
+                InsertDisk(filePath);
+            }
+            else
+            {
+                EMU = new Emulator();
+                EMU.PPU_DecodeSignal = settings_ntsc;
+                EMU.PPU_ShowRawNTSCSignal = settings_ntscRaw;
+                EMU.PPU_ShowScreenBorders = settings_border;
+                EMU.PPUClock = settings_alignment;
+
+                if (!LoadROM(filePath)) { return; }
+
+                cancel = new CancellationTokenSource();
+                EmuClock = new Thread(() => ClockEmulator(cancel.Token));
+                EmuClock.SetApartmentState(ApartmentState.STA);
+                EmuClock.IsBackground = true;
+                EmuClock.Start();
+            }
             GC.Collect();
 
         }
@@ -764,6 +850,14 @@ namespace TriCNES
             if (NametableViewer != null)
             {
                 NametableViewer.Dispose();
+            }
+            if(TasTimeline != null)
+            {
+                TasTimeline.Dispose();
+            }
+            if (HexEditor != null)
+            {
+                HexEditor.Dispose();
             }
             Application.Exit();
         }
@@ -810,6 +904,7 @@ namespace TriCNES
             {
                 Emulator Emu2 = new Emulator();
                 Emu2.Cart = EMU.Cart;
+                Emu2.Cart.Emu = Emu2;
                 EMU = Emu2;
                 EMU.PPUClock = Alignment;
                 EMU.CPUClock = 0;
@@ -950,29 +1045,27 @@ namespace TriCNES
             TraceLogger.Show();
             TraceLogger.Location = Location;
         }
-
+        bool Pending_ShowScreenBorders;
         private void trueToolStripMenuItem1_Click(object sender, EventArgs e)
         {
             toolstrip_ViewBorders_False.Checked = false;
             toolstrip_ViewBorders_True.Checked = true;
             if (EMU != null)
             {
-                EMU.PPU_ShowScreenBorders = true;
+                Pending_ShowScreenBorders = true;
             }
             settings_border = true;
-            ResizeWindow(ScreenMult);
         }
-
+        bool Pending_HideScreenBorders;
         private void falseToolStripMenuItem1_Click(object sender, EventArgs e)
         {
             toolstrip_ViewBorders_False.Checked = true;
             toolstrip_ViewBorders_True.Checked = false;
             if (EMU != null)
             {
-                EMU.PPU_ShowScreenBorders = false;
+                Pending_HideScreenBorders = true;
             }
             settings_border = false;
-            ResizeWindow(ScreenMult);
         }
 
         private void nametableViewerToolStripMenuItem_Click(object sender, EventArgs e)
@@ -990,15 +1083,15 @@ namespace TriCNES
 
         private void hexEditorToolStripMenuItem_Click(object sender, EventArgs e)
         {
-            if (HexExditor != null)
+            if (HexEditor != null)
             {
-                HexExditor.Focus();
+                HexEditor.Focus();
                 return;
             }
-            HexExditor = new TriCHexEditor();
-            HexExditor.MainGUI = this;
-            HexExditor.Show();
-            HexExditor.Location = Location;
+            HexEditor = new TriCHexEditor();
+            HexEditor.MainGUI = this;
+            HexEditor.Show();
+            HexEditor.Location = Location;
         }
 
         List<Byte> Savestate = new List<byte>();
@@ -1047,6 +1140,7 @@ namespace TriCNES
                         EmuClock.Join();
                     }
                     filePath = ofd.FileName;
+                    FDS = Path.GetExtension(ofd.FileName) == ".fds";
                     TasTimeline = new TriCTASTimeline(this);
                     TasTimeline.Show();
                     TasTimeline.Location = Location;
@@ -1060,13 +1154,14 @@ namespace TriCNES
             }
         }
 
-        public List<ushort> ParseTasFile(string TasFilePath)
+        public List<ushort> ParseTasFile(string TasFilePath, out List<bool> Resets)
         {
             // determine file type
             string extension = Path.GetExtension(TasFilePath);
             // create list of inputs from the tas file, and make any settings changes if needed.
             byte[] ByteArray = File.ReadAllBytes(TasFilePath);
             List<ushort> TASInputs = new List<ushort>(); // Low byte is player 1, High byte is player 2.
+            List<bool> TASResets = new List<bool>();
 
             switch (extension)
             {
@@ -1124,6 +1219,7 @@ namespace TriCNES
                                 u |= (ushort)(lnCharArray[pipeIndex + 8] == 'A' ? 0x8000 : 0);
                             }
                             TASInputs.Add(u);
+                            TASResets.Add(reset);
                             ln = InputLog.ReadLine();
                             if (ln == "[/Input]")
                             {
@@ -1135,7 +1231,6 @@ namespace TriCNES
                 case ".fm2":
                     {
                         // change the alignment to use FCEUX's
-
                         // header info of varying size
                         // Every line of a header ends in $0A
                         // Every header section is named. Example: $0A "romFileName"
@@ -1191,6 +1286,23 @@ namespace TriCNES
                                 {
                                     break;
                                 }
+                                if (ByteArray[i + 1] == 0x0A)
+                                {
+                                    // The .fm2 TAS file format supports empty rows. Formatting quirk?
+                                    i++;
+                                    continue;
+                                }
+                                if (ByteArray[i + 1] == 0x23)
+                                {
+                                    // The .fm2 TAS file format supports comments, in the following format:
+                                    //\n### Comment
+                                    // so basically, check for `#` as the next character.
+
+                                    // And now we skip until the next new line.
+                                    i++;
+                                    continue;
+                                }
+                                bool reset = (ByteArray[i + 2] & 1) == 1;
                                 if (fm2_UsePort0)
                                 {
                                     Port0Index = i + 4;
@@ -1228,6 +1340,7 @@ namespace TriCNES
                                     u |= (ushort)(ByteArray[Port1Index + 7] == 0x2E ? 0 : 0x8000);
                                 }
                                 TASInputs.Add(u);
+                                TASResets.Add(reset);
 
                             }
                             i++;
@@ -1306,11 +1419,13 @@ namespace TriCNES
                                         ushort u = 0;
                                         while (i < next0A + 2 + InputLogByteLength)
                                         {
+                                            bool reset = (ByteArray[i] & 1) == 1;
                                             i++;// dummy byte (?)
                                             u = 0;
                                             if (fm3_UsePort0) { u = ByteArray[i]; i++; }
                                             if (fm3_UsePort1) { u |= (ushort)(ByteArray[i] << 8); i++; }
                                             TASInputs.Add(u);
+                                            TASResets.Add(reset);
                                         }
 
                                     }
@@ -1350,10 +1465,41 @@ namespace TriCNES
                     }
                     break;
                 case ".3c2":
+                    {
+                        // The .3c2 format is pretty much identical to the .r08 file format, but with a 1-byte header.
+                        // Bit 0: 0 = Latch Filtering. 1 = Clock Filtering.
+                        // Bit 1: 0 = Only controller 1. 1 = Controller 1 and controller 2.
+                        // Bit 2: 0 = No reset button. 1 = The reset button is used in this TAS.
+
+                        bool UseController2 = (ByteArray[0] & 2) != 0;
+                        bool UseReset = (ByteArray[0] & 4) != 0;
+
+                        byte b = 0;
+                        byte b2 = 0;
+                        int i = 1;
+                        while (i < ByteArray.Length)
+                        {
+                            b = ByteArray[i];
+                            i++;
+                            if (UseController2)
+                            {
+                                b2 = ByteArray[i];
+                                i++;
+                            }
+                            TASInputs.Add((ushort)(b | (b2 << 8)));
+                            if (UseReset)
+                            {
+                                bool res = (ByteArray[i] & 0x80) == 0x80; // I use bit 7 for the reset button. (bit 0 is for lag frames in the .3c3 format.)
+                                TASResets.Add(res);
+                                i++;
+                            }
+                        }
+                        TASInputs.Add(0); // append a zero to the end for safe measure.
+                    }
+                    break;
                 case ".r08":
                     {
                         // the .r08 file format is conveniently already in the format I want for my emulator.
-                        // I also pretty much format my own .3c2 format in the exact same way.
                         byte b = 0;
                         byte b2 = 0;
                         int i = 0;
@@ -1374,32 +1520,58 @@ namespace TriCNES
                         // - .3c3 saves the savestate information
                         // - .3c3 saves the "lag frame" information as well. (So every frame is 3 bytes now.)
 
-                        // .3c3 has a 8 byte header.
-                        // It's just little-endian 32-bit integers.
+                        // .3c3 has a 16 byte header.
+                        // It's just little-endian 32-bit integers, and the same 1-byte header used in .3c2's.
                         // The first one determines how many bytes are in every savestate.
                         // the second one determinines how many frames there are in this TAS.
                         // I guess that means there's a limit of 2,147,483,647 frames in a .3c3 TAS file. God help me if I ever feel compelled to challenge this.
+                        // Then there's a handful of unused bytes. ByteArray[15] is the same format as the 1-byte header used in 3c2's.
+                        // Bit 0: 0 = Latch Filtering. 1 = Clock Filtering.
+                        // Bit 1: 0 = Only controller 1. 1 = Controller 1 and controller 2.
+                        // Bit 2: 0 = No reset button. 1 = The reset button is used in this TAS.
+
 
                         int SavestateLength = ByteArray[0] | (ByteArray[1] << 8) | (ByteArray[2] << 16) | (ByteArray[3] << 24);
                         int rerecords = ByteArray[4] | (ByteArray[5] << 8) | (ByteArray[6] << 16) | (ByteArray[7] << 24);
                         int frameCount = ByteArray[8] | (ByteArray[9] << 8) | (ByteArray[10] << 16) | (ByteArray[11] << 24);
 
+                        bool UseController2 = (ByteArray[15] & 2) != 0;
+                        bool UseReset = (ByteArray[15] & 4) != 0;
+
                         List<List<byte>> saveStates = new List<List<byte>>();
                         List<List<byte>> saveStates2 = new List<List<byte>>();
                         List<bool> lagFrames = new List<bool>();
 
+                        int FrameCountMult = 2;
+                        if (UseController2)
+                        {
+                            FrameCountMult++;
+                        }
+
                         byte b = 0;
                         byte b2 = 0;
-                        int i = 12;
-                        while (i < frameCount * 3 + 12)
+                        int i = 16;
+                        while (i < frameCount * FrameCountMult + 16)
                         {
                             b = ByteArray[i];
-                            b2 = ByteArray[i + 1];
+                            i++;
+                            if (UseController2)
+                            {
+                                b2 = ByteArray[i];
+                                i++;
+                            }
                             TASInputs.Add((ushort)(b | (b2 << 8)));
+                            bool lagframe = (ByteArray[i] & 1) == 1; // I use bit 0 for the lag frame info.
+                            lagFrames.Add(lagframe);
+                            if (UseReset)
+                            {
+                                bool res = (ByteArray[i] & 0x80) == 0x80; // I use bit 7 for the reset button.
+                                TASResets.Add(res);
+                            }
+                            i++;
                             saveStates.Add(new List<byte>());
                             saveStates2.Add(new List<byte>());
-                            lagFrames.Add(ByteArray[i + 2] == 1);
-                            i += 3;
+
                         }
 
                         // and from here until you reach the end of the file, the data is arranged in the following format:
@@ -1432,6 +1604,12 @@ namespace TriCNES
                     break;
                     // TODO: ask if the .tasd file format is a thing yet
             }
+            if (TASResets.Count == 0) // If not using Resets, we still want to initialize the Resets list, in case they are added to the TAS timeline at a later point.
+            {
+                TASResets = new List<bool>(new bool[TASInputs.Count]);
+            }
+
+            Resets = TASResets;
             return TASInputs;
         }
         byte FamtasiaInput2Standard(byte input)
@@ -1472,8 +1650,8 @@ namespace TriCNES
             EMU.PPU_ShowRawNTSCSignal = settings_ntscRaw;
             EMU.PPU_ShowScreenBorders = settings_border;
             EMU.PPUClock = settings_alignment;
-            Cartridge Cart = new Cartridge(filePath);
-            EMU.Cart = Cart;
+            if (!LoadROM(filePath)) { return; }
+
             cancel = new CancellationTokenSource();
             EmuClock = new Thread(() => ClockTimelineEmulator(cancel.Token));
             EmuClock.SetApartmentState(ApartmentState.STA);
@@ -1519,9 +1697,9 @@ namespace TriCNES
                     EMU.PPU_ShowRawNTSCSignal = settings_ntscRaw;
                     EMU.PPU_ShowScreenBorders = settings_border;
                     EMU.PPUClock = settings_alignment;
-                    Cartridge Cart = new Cartridge(filePath);
-                    EMU.Cart = Cart;
-                    if(Timeline_PendingClockFiltering)
+                    if (!LoadROM(filePath)) { return; }
+
+                    if (Timeline_PendingClockFiltering)
                     {
                         Timeline_PendingClockFiltering = false;
                         EMU.TASTimelineClockFiltering = true;
@@ -1611,7 +1789,7 @@ namespace TriCNES
                 if (Timeline_AutoPlayUntilTarget && TasTimeline.frameIndex >= Timeline_AutoPlayTarget)
                 {
                     Timeline_AutoPlayUntilTarget = false;
-                }                
+                }
 
                 RunUpkeep();
                 if (Timeline_Paused && !FrameAdvance && !Timeline_AutoPlayUntilTarget)
@@ -1661,13 +1839,22 @@ namespace TriCNES
                     if (TasTimeline.RecordInputs() && !rewinding)
                     {
                         byte realtimeInputs = RealtimeInputs();
-                        EMU.ControllerPort1 = realtimeInputs;
-                        EMU.ControllerPort2 = 0;
-                        TriCTASTimeline.Inputs[TasTimeline.frameIndex] = realtimeInputs;
+                        if (TasTimeline.Player2())
+                        {
+                            EMU.ControllerPort2 = realtimeInputs;
+                            EMU.ControllerPort1 = 0;
+                        }
+                        else
+                        {
+                            EMU.ControllerPort1 = realtimeInputs;
+                            EMU.ControllerPort2 = 0;
+                        }
+                        ushort rimputs = (ushort)((EMU.ControllerPort2 << 8) | EMU.ControllerPort1);
+                        TriCTASTimeline.Inputs[TasTimeline.frameIndex] = rimputs;
                         int row = TasTimeline.frameIndex - TasTimeline.TopFrame;
                         if (row >= 0 && row < 40)
                         {
-                            TasTimeline.RecalculateTimelineRow(row, realtimeInputs);
+                            TasTimeline.RecalculateTimelineRow(row, rimputs);
                             TasTimeline.RedrawTimelineRow(row, false);
                         }
                         if (TasTimeline.frameIndex < TasTimeline.frameEmulated)
@@ -1684,6 +1871,11 @@ namespace TriCNES
 
                     EMU._CoreFrameAdvance();
                     RunPostFramePhase();
+                    if (TasTimeline.frameIndex < TriCTASTimeline.Resets.Count && TriCTASTimeline.Resets[TasTimeline.frameIndex])
+                    {
+                        EMU.Reset();
+                    }
+
                     if (!EMU.TASTimelineClockFiltering || !EMU.LagFrame)
                     {
                         TasTimeline.FrameAdvance();
@@ -1693,7 +1885,7 @@ namespace TriCNES
                         //Timeline_PendingFrameAdvance = true; // keep running until a non-lag frame.
                     }
                 }
-            }   
+            }
         }
 
         public bool[] OtherControllerHotkeys()
